@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: soft2cost2
+  profiles:
+    # 로컬 기본값만 dev. 운영 배포는 SPRING_PROFILES_ACTIVE를 명시한다.
+    default: dev
+
+  # datasource, Redis, Flyway, MyBatis, auth, CORS, ADMIN bootstrap의
+  # 환경별 실제 값은 application-dev.yaml/application-prod.yaml에서 관리한다.

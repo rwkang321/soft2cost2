@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.soft2cost2.menu.mapper.MenuAdminMapper">
+
+    <sql id="menuColumns">
+        M.MENU_ID,
+        M.PARENT_MENU_ID,
+        M.MENU_CODE,
+        M.MENU_NAME,
+        M.MENU_LEVEL,
+        M.MENU_TYPE,
+        M.SCREEN_ID,
+        M.FORM_PATH,
+        M.ICON_NAME,
+        M.SORT_ORDER,
+        M.SENSITIVE_YN,
+        M.USE_YN,
+        M.CREATED_AT,
+        M.CREATED_BY,
+        M.UPDATED_AT,
+        M.UPDATED_BY,
+        COALESCE(M.UPDATED_AT, M.CREATED_AT) AS REVISION_AT
+    </sql>
+
+    <select id="selectAll"
+            resultType="com.soft2cost2.menu.dto.MenuAdminResponse">
+        SELECT <include refid="menuColumns"/>
+        FROM S2C_MENU M
+        ORDER BY M.MENU_LEVEL, M.SORT_ORDER, M.MENU_ID
+    </select>
+
+    <select id="selectById"
+            resultType="com.soft2cost2.menu.dto.MenuAdminResponse">
+        SELECT <include refid="menuColumns"/>
+        FROM S2C_MENU M
+        WHERE M.MENU_ID = #{menuId}
+    </select>
+
+    <select id="selectByIdForUpdate"
+            resultType="com.soft2cost2.menu.dto.MenuAdminResponse">
+        SELECT <include refid="menuColumns"/>
+        FROM S2C_MENU M
+        WHERE M.MENU_ID = #{menuId}
+        FOR UPDATE
+    </select>
+
+    <select id="selectByCode"
+            resultType="com.soft2cost2.menu.dto.MenuAdminResponse">
+        SELECT <include refid="menuColumns"/>
+        FROM S2C_MENU M
+        WHERE UPPER(M.MENU_CODE) = UPPER(#{menuCode})
+    </select>
+
+    <select id="selectSubtreeForUpdate"
+            resultType="com.soft2cost2.menu.dto.MenuAdminResponse">
+        SELECT <include refid="menuColumns"/>
+        FROM S2C_MENU M
+        WHERE M.MENU_ID IN (
+        SELECT MENU_ID
+        FROM S2C_MENU
+        START WITH MENU_ID = #{menuId}
+        CONNECT BY NOCYCLE PRIOR MENU_ID = PARENT_MENU_ID
+        )
+        FOR UPDATE
+    </select>
+
+    <select id="countMenuCode" resultType="int">
+        SELECT COUNT(*)
+        FROM S2C_MENU
+        WHERE UPPER(MENU_CODE) = UPPER(#{menuCode})
+        <if test="excludedMenuId != null">
+            AND MENU_ID &lt;&gt; #{excludedMenuId}
+        </if>
+    </select>
+
+    <select id="countInSubtree" resultType="int">
+        SELECT COUNT(*)
+        FROM (
+        SELECT MENU_ID
+        FROM S2C_MENU
+        START WITH MENU_ID = #{rootMenuId}
+        CONNECT BY NOCYCLE PRIOR MENU_ID = PARENT_MENU_ID
+        )
+        WHERE MENU_ID = #{candidateMenuId}
+    </select>
+
+    <select id="selectAffectedUserIds" resultType="java.lang.Long">
+        WITH SUBTREE AS (
+        SELECT MENU_ID
+        FROM S2C_MENU
+        START WITH MENU_ID = #{rootMenuId}
+        CONNECT BY NOCYCLE PRIOR MENU_ID = PARENT_MENU_ID
+        )
+        SELECT DISTINCT USER_ID
+        FROM (
+        SELECT UR.USER_ID
+        FROM S2C_USER_ROLE UR
+        JOIN S2C_ROLE R
+        ON R.ROLE_ID = UR.ROLE_ID
+        AND R.USE_YN = 'Y'
+        JOIN S2C_ROLE_MENU_AUTH A
+        ON A.ROLE_ID = UR.ROLE_ID
+        AND A.USE_YN = 'Y'
+        JOIN SUBTREE S
+        ON S.MENU_ID = A.MENU_ID
+        WHERE UR.USE_YN = 'Y'
+        AND UR.VALID_FROM &lt;= SYSDATE
+        AND (UR.VALID_TO IS NULL OR UR.VALID_TO &gt;= TRUNC(SYSDATE))
+
+        UNION
+
+        SELECT UMA.USER_ID
+        FROM S2C_USER_MENU_AUTH UMA
+        JOIN SUBTREE S
+        ON S.MENU_ID = UMA.MENU_ID
+        WHERE UMA.USE_YN = 'Y'
+        AND UMA.VALID_FROM &lt;= SYSDATE
+        AND (UMA.VALID_TO IS NULL OR UMA.VALID_TO &gt;= TRUNC(SYSDATE))
+        )
+    </select>
+
+    <insert id="insert">
+        INSERT INTO S2C_MENU (
+        PARENT_MENU_ID,
+        MENU_CODE,
+        MENU_NAME,
+        MENU_LEVEL,
+        MENU_TYPE,
+        SCREEN_ID,
+        FORM_PATH,
+        ICON_NAME,
+        SORT_ORDER,
+        SENSITIVE_YN,
+        USE_YN,
+        CREATED_AT,
+        CREATED_BY
+        ) VALUES (
+        #{parentMenuId},
+        #{menuCode},
+        #{menuName},
+        #{menuLevel},
+        #{menuType},
+        #{screenId},
+        #{formPath},
+        #{iconName},
+        #{sortOrder},
+        #{sensitiveYn},
+        'Y',
+        SYSTIMESTAMP,
+        #{actor}
+        )
+    </insert>
+
+    <update id="updateRoot">
+        UPDATE S2C_MENU
+        SET PARENT_MENU_ID = #{parentMenuId},
+        MENU_NAME = #{menuName},
+        MENU_LEVEL = #{menuLevel},
+        MENU_TYPE = #{menuType},
+        SCREEN_ID = #{screenId},
+        FORM_PATH = #{formPath},
+        ICON_NAME = #{iconName},
+        SORT_ORDER = #{sortOrder},
+        SENSITIVE_YN = #{sensitiveYn},
+        UPDATED_AT = SYSTIMESTAMP,
+        UPDATED_BY = #{actor}
+        WHERE MENU_ID = #{menuId}
+    </update>
+
+    <update id="shiftDescendantLevels">
+        UPDATE S2C_MENU
+        SET MENU_LEVEL = MENU_LEVEL + #{levelDelta},
+        UPDATED_AT = SYSTIMESTAMP,
+        UPDATED_BY = #{actor}
+        WHERE MENU_ID IN (
+        SELECT MENU_ID
+        FROM S2C_MENU
+        START WITH MENU_ID = #{menuId}
+        CONNECT BY NOCYCLE PRIOR MENU_ID = PARENT_MENU_ID
+        )
+        AND MENU_ID &lt;&gt; #{menuId}
+    </update>
+
+    <update id="disableSubtree">
+        UPDATE S2C_MENU
+        SET USE_YN = 'N',
+        UPDATED_AT = SYSTIMESTAMP,
+        UPDATED_BY = #{actor}
+        WHERE MENU_ID IN (
+        SELECT MENU_ID
+        FROM S2C_MENU
+        START WITH MENU_ID = #{menuId}
+        CONNECT BY NOCYCLE PRIOR MENU_ID = PARENT_MENU_ID
+        )
+        AND USE_YN = 'Y'
+    </update>
+
+</mapper>

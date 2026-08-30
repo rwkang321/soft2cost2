@@ -1,0 +1,58 @@
+server:
+  port: ${SOFT2COST2_API_PORT:8081}
+
+spring:
+  config:
+    import: "optional:file:.idea/.mysettings.ini[.properties]"
+  datasource:
+    url: ${SOFT2COST_DB_URL}
+    username: ${SOFT2COST_DB_USERNAME}
+    password: ${SOFT2COST_DB_PASSWORD}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      pool-name: Soft2CostHikariPool
+      minimum-idle: ${SOFT2COST_DB_MIN_IDLE:5}
+      maximum-pool-size: ${SOFT2COST_DB_MAX_POOL_SIZE:10}
+      connection-timeout: ${SOFT2COST_DB_CONNECTION_TIMEOUT_MS:30000}
+  data:
+    redis:
+      host: ${SOFT2COST_REDIS_HOST:localhost}
+      port: ${SOFT2COST_REDIS_PORT:6379}
+      password: ${SOFT2COST_REDIS_PASSWORD}
+      database: ${SOFT2COST_REDIS_DATABASE:0}
+      connect-timeout: ${SOFT2COST_REDIS_CONNECT_TIMEOUT:3s}
+      timeout: ${SOFT2COST_REDIS_TIMEOUT:3s}
+  flyway:
+    enabled: ${SOFT2COST_FLYWAY_ENABLED:false}
+    locations: classpath:/db/migration
+    baseline-on-migrate: ${SOFT2COST_FLYWAY_BASELINE_ON_MIGRATE:true}
+    baseline-version: ${SOFT2COST_FLYWAY_BASELINE_VERSION:0}
+    encoding: UTF-8
+
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+soft2cost2:
+  security:
+    swagger-enabled: ${SOFT2COST2_SWAGGER_ENABLED:false}
+
+  cors:
+    allowed-origins:
+      - ${SOFT2COST2_NEXACRO_ORIGIN:http://localhost:9091}
+
+  auth:
+    session-ttl-hours: ${SOFT2COST2_SESSION_TTL_HOURS:8}
+    login:
+      failure-threshold: ${SOFT2COST2_LOGIN_FAILURE_THRESHOLD:5}
+      lock-minutes: ${SOFT2COST2_LOGIN_LOCK_MINUTES:15}
+      bcrypt-strength: ${SOFT2COST2_BCRYPT_STRENGTH:12}
+
+  bootstrap:
+    enabled: ${SOFT2COST2_BOOTSTRAP_ENABLED:false}
+    company-code: ${SOFT2COST2_BOOTSTRAP_COMPANY_CODE:SOFT2COST}
+    admin-login-id: ${SOFT2COST2_ADMIN_LOGIN_ID:ADMIN}
+    admin-name: ${SOFT2COST2_ADMIN_NAME:시스템관리자}
+    admin-password: ${SOFT2COST2_ADMIN_PASSWORD}
+

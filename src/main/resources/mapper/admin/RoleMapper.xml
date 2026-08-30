@@ -1,0 +1,396 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!--/** 2026.08.15 RoleMapper.xml by rwkang.
+* 1. 최초 1회만,
+* todo: S2C_USER 테이블에, "ADMIN", "시스템 관리자" 등록을 위해.
+* todo: S2C_USER_ROLE 테이블에, "ADMIN", "SYSTEM_ADMIN"
+*
+*/-->
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.soft2cost2.admin.mapper.RoleMapper">
+
+    <!-- cdx added,
+        [MERGE] 구문은 update, insert 모두 사용 가능,
+        todo: "현재 시점에 유효하게 사용 중인 동일 권한(USE_YN='Y' AND VALID_TO IS NULL)이 없을 때만 새 권한 이력을 INSERT한다"는
+        비즈니스 로직을 단일 쿼리로 안전하게 처리하는 역할
+
+        예)
+
+        1. 테이블 초기 상태 (S2C_USER_ROLE)현재 데이터베이스에 다음과 같은 3개의 권한 이력이 저장되어 있다고 가정.
+        USER_ID     ROLE_ID         VALID_FROM      VALID_TO        REASON      USE_YN
+        user_A      ROLE_ADMIN      2026-01-01      NULL            신규 발급       Y
+        user_B      ROLE_USER       2025-01-01      2025-12-31      기간 만료       Y
+        user_C      ROLE_MANAGER    2026-03-01      NULL            권한 회수       N
+
+        2. 매칭 조건 (ON 절)의 기준
+        쿼리의 ON 절은 다음 4가지 조건을 모두 동시에 만족하는 행을 찾습니다.
+        USER_ID = #{userId}
+        ROLE_ID = #{roleId}
+        USE_YN = 'Y'
+        VALID_TO IS NULL
+
+        3. 실제 데이터 입력 시나리오
+
+        시나리오 1: 이미 활성 권한이 있는 경우 (user_A, ROLE_ADMIN)
+        전달 파라미터: userId = "user_A", roleId = "ROLE_ADMIN"
+        검사 결과:
+        테이블의 1번 행과 비교: USER_ID('user_A') 일치, ROLE_ID('ROLE_ADMIN') 일치, USE_YN('Y') 일치, VALID_TO IS NULL 만족.
+        MATCHED (조건 일치) 판정.
+        실행 결과:
+        WHEN MATCHED 절이 없으므로 아무 작업도 수행하지 않음 (0건 INSERT).
+        중복 권한 부여를 방지합니다.
+
+        시나리오 2: 만료된 이력만 있는 경우 (user_B, ROLE_USER)
+        전달 파라미터: userId = "user_B", roleId = "ROLE_USER", reason = "권한 재부여", createdBy = "admin"
+        검사 결과:
+        테이블의 2번 행과 비교: USER_ID와 ROLE_ID는 일치하지만, VALID_TO가 2025-12-31로 채워져 있어 NULL이 아님.
+        NOT MATCHED (조건 불일치) 판정.
+        실행 결과:
+        신규 행 INSERT 수행 (1건 반영).
+        실행 후 테이블 상태:
+            [기존] user_B | ROLE_USER | 2025-01-01 | 2025-12-31 | 기간 만료 | Y
+            [신규] user_B | ROLE_USER | 2026-08-19 | NULL       | 권한 재부여 | Y  ===> 추가됨
+
+        시나리오 3: 비활성화(USE_YN = 'N')된 이력만 있는 경우 (user_C, ROLE_MANAGER)
+        전달 파라미터: userId = "user_C", roleId = "ROLE_MANAGER", reason = "권한 복구", createdBy = "admin"
+        검사 결과:
+        테이블의 3번 행과 비교: USER_ID, ROLE_ID, VALID_TO IS NULL은 일치하지만, USE_YN이 'N'임.
+        NOT MATCHED (조건 불일치) 판정.
+        실행 결과:
+        신규 행 INSERT 수행 (1건 반영).
+        실행 후 테이블 상태:
+            [기존] user_C | ROLE_MANAGER | 2026-03-01 | NULL | 권한 회수 | N
+            [신규] user_C | ROLE_MANAGER | 2026-08-19 | NULL | 권한 복구 | Y  ===> 추가됨
+
+        시나리오 4: 전혀 없는 새로운 사용자의 경우 (user_D, ROLE_USER)
+        전달 파라미터: userId = "user_D", roleId = "ROLE_USER", reason = "신규 입사", createdBy = "admin"
+        검사 결과:
+        일치하는 행이 전혀 없음.
+        NOT MATCHED (조건 불일치) 판정.
+        실행 결과:
+        신규 행 INSERT 수행 (1건 반영).
+        실행 후 테이블 상태:
+            [신규] user_D | ROLE_USER | 2026-08-19 | NULL | 신규 입사 | Y  ===> 추가됨
+
+        -->
+
+    <update id="mergeUserRole">
+
+        MERGE INTO S2C_USER_ROLE T
+            USING (
+                SELECT
+                    #{userId} AS USER_ID,
+                    #{roleId} AS ROLE_ID,
+                    #{reason} AS REASON,
+                    #{createdBy} AS CREATED_BY
+                FROM DUAL) S
+            ON (
+                T.USER_ID = S.USER_ID
+                AND T.ROLE_ID = S.ROLE_ID
+                AND T.USE_YN = 'Y'
+                AND T.VALID_TO IS NULL
+            )
+        WHEN NOT MATCHED THEN
+            INSERT (USER_ID, ROLE_ID, VALID_FROM, VALID_TO, REASON, USE_YN, CREATED_AT, CREATED_BY)
+            VALUES (#{userId}, #{roleId}, SYSDATE, NULL, #{reason}, 'Y', SYSTIMESTAMP, #{createdBy})
+
+    </update>
+
+    <!-- cdx added,
+        시스템 기본 역할(Role 마스터 데이터)이 테이블에 존재하는지 확인하고,
+        없을 때만 새로 등록(Insert-if-not-exists)하는 초기화/동기화용 MERGE 구문.
+        todo: 시스템 필수 역할이 정의되어 있는지 체크 후 생성
+
+        todo: ROLE_TYPE은 해당 역할(Role)이 "시스템이 사전에 정의하여 보호하는 기본 역할인지" 아니면
+              "운영자/관리자가 필요에 따라 동적으로 생성·관리하는 커스텀 역할인지"를 구분하기 위한 메타데이터(분류 코드)
+
+        A. 아래 예시에서 구분이 나뉜 이유
+        ROLE_USER (SYSTEM):
+        애플리케이션 프레임워크나 비즈니스 로직에 코드로 하드코딩되어 강하게 결합된 기본 권한.
+        예: 로그인 성공 시 기본 부여되는 권한, Spring Security 설정 파일(.hasRole('USER')) 등에 명시된 권한.
+        삭제되거나 코드가 바뀌면 시스템 전체 인증/인가 체계가 깨질 위험이 있음.
+        ROLE_MANAGER (CUSTOM):
+        시스템 구축 후 운영 관리자 화면(Admin UI)에서 조직 개편이나 부서 요구사항에 맞춰 임의로 생성한 역할.
+        예: '영업팀 매니저', '정산 검토자' 등 특정 메뉴/기능에만 접근하도록 운영 중에 추가된 권한.
+        필요에 따라 권한을 수정하거나 삭제해도 핵심 시스템 가동에는 치명적인 영향이 없음.
+
+        B. ROLE_TYPE의 핵심 역할 및 기능
+        실제 엔터프라이즈 시스템에서 ROLE_TYPE은 주로 다음과 같은 비즈니스 통제 목적으로 사용 됨.
+        수정 및 삭제 방지 (불변성 보장):
+        todo: 관리자 UI에서
+              ROLE_TYPE = 'SYSTEM'인 항목은 [삭제], [코드 변경] 버튼을 비활성화(Disable)하거나 백엔드 API에서 차단 한다.
+              ROLE_TYPE = 'CUSTOM'인 항목만 운영자가 자유롭게 수정/삭제할 수 있도록 허용 한다.
+        시스템 부팅 시 자동 초기화 (Bootstrap / Migration):
+        앞서 mergeSystemAdminRole 같은 쿼리는 애플리케이션 시작 시점에 실행되어 필수적인 SYSTEM 역할들이 DB에 존재하는지 확인하고
+        자동 생성 한다.
+        UI 권한 관리 화면의 필터링/그루핑:
+        운영자 화면에서 관리자가 직접 통제할 수 있는 역할 목록과 시스템 내장 역할을 탭(Tab)이나 필터로 분리하여 보여줄 때 기준이 된다.
+
+        C. 전형적인 ROLE_TYPE 설계 비교
+        구분        SYSTEM (내장/기본 역할)                              CUSTOM (사용자 정의 역할)
+        생성 주체    개발자 / 애플리케이션 배포 스크립트                     시스템 관리자 (UI 화면을 통해)
+        대표 예시    ROLE_SYSTEM_ADMIN, ROLE_USER, ROLE_ANONYMOUS      ROLE_HR_MANAGER, ROLE_SETTLEMENT_LEAD
+        관리 권한    코드 변경 불가, 삭제 불가 (Read-Only)                 명칭 변경, 권한 매핑 수정, 삭제 가능
+        주요 사용처  소스 코드 내 하드코딩된 인가 로직, Spring Security      DB 기반의 동적 메뉴/버튼 권한 매핑
+
+        예)
+        1. 쿼리 매칭 조건 (ON 절)
+            기준 컬럼: T.ROLE_CODE = S.ROLE_CODE
+            테이블에 전달받은 ROLE_CODE와 완전히 동일한 코드가 존재하는지만 확인
+
+        2. 테이블 초기 상태 (S2C_ROLE)데이터베이스에 이미 등록된 역할(Role) 마스터 데이터가 다음과 같다고 가정
+        ROLE_CODE       ROLE_NAME     ROLE_TYPE   DESCRIPTION     USE_YN
+        ROLE_USER       일반 사용자     SYSTEM      기본 사용자 권한   Y
+        ROLE_MANAGER    매니저         CUSTOM      중간 관리자 권한   Y
+
+        description = "설명 수정 시도"
+        createdBy = "SYSTEM_ADMIN"
+        검사 결과:
+        테이블 1번 행에 ROLE_CODE = 'ROLE_USER'가 이미 존재합니다.
+        MATCHED (조건 일치) 판정.
+        실행 결과:
+        WHEN MATCHED 절이 없으므로 아무 작업도 하지 않고 건너뜁니다 (0건 반영).
+        roleName이나 description에 다른 값을 넘겨도 기존 데이터는 변경되지 않고 그대로 유지됩니다.
+        시나리오 2: 새로운 시스템 관리자 역할을 등록하는 경우 (ROLE_SYSTEM_ADMIN)
+        전달 파라미터:
+        roleCode = "ROLE_SYSTEM_ADMIN"
+        roleName = "시스템 최고 관리자"
+        description = "전체 시스템 제어 권한"
+        createdBy = "INIT_LOADER"
+        검사 결과:
+        테이블에 ROLE_SYSTEM_ADMIN이라는 코드는 존재하지 않습니다.
+        NOT MATCHED (조건 불일치) 판정.
+        실행 결과:
+        신규 행이 INSERT 수행 (1건 반영)됩니다.
+        ROLE_TYPE은 쿼리에 하드코딩된 'SYSTEM', USE_YN은 'Y'로 들어갑니다.
+        실행 후 테이블 상태:
+            [기존] ROLE_USER         | 일반 사용자       | SYSTEM | 기본 사용자 권한   | Y
+            [기존] ROLE_MANAGER      | 매니저           | CUSTOM | 중간 관리자 권한   | Y
+            [신규] ROLE_SYSTEM_ADMIN | 시스템 최고 관리자 | SYSTEM | 전체 시스템 제어.. | Y  ===> 추가됨
+
+        -->
+
+    <update id="mergeSystemAdminRole">
+
+        MERGE INTO S2C_ROLE T
+            USING (
+                SELECT
+                    #{roleCode} AS ROLE_CODE,
+                    #{roleName} AS ROLE_NAME,
+                    #{description} AS DESCRIPTION,
+                    #{createdBy} AS CREATED_BY
+                FROM DUAL) S
+            ON (T.ROLE_CODE = S.ROLE_CODE)
+        WHEN NOT MATCHED THEN
+            INSERT (ROLE_CODE, ROLE_NAME, ROLE_TYPE, DESCRIPTION, USE_YN, CREATED_AT, CREATED_BY)
+            VALUES (#{roleCode}, #{roleName}, 'SYSTEM', #{description}, 'Y', SYSTIMESTAMP, #{createdBy})
+
+    </update>
+
+    <!-- cdx added,
+        todo: 지정한 역할(roleId, 보통 시스템 최고 관리자)에게 현재 사용 중인 모든 메뉴(S2C_MENU)에 대한
+              최고 권한을 일괄 부여(Upsert: 있으면 갱신, 없으면 등록)하는 작업
+              단일 행이 아니라 S2C_MENU의 활성 메뉴 개수만큼 다중 행(Set)을 대상으로 동시에 MERGE가 일어 남.
+
+        1. 테이블 초기 상태
+
+        ① 메뉴 마스터 (S2C_MENU)현재 시스템에 사용 중인 메뉴가 3개 있다고 가정
+        MENU_ID         MENU_NAME       USE_YN
+        MENU_01         대시보드            Y
+        MENU_02         결제/정산 관리       Y
+        MENU_03         시스템 환경설정      Y
+
+        ② 역할-메뉴 권한 테이블 (S2C_ROLE_MENU_AUTH) 초기 상태roleId = 'ROLE_ADMIN'(시스템 관리자)에 대해
+        기존 권한이 아래처럼 불완전하게 들어가 있는 상태
+        ROLE_ID     MENU_ID     AUTH_LEVEL    CAN_EXCEL   CAN_APPROVE     DATA_SCOPE      USE_YN
+        ROLE_ADMIN  MENU_01     R (조회만)     N           N               DEPT (부서)       Y
+        ROLE_ADMIN  MENU_02     W (전체)       Y           Y               COMPANY (전사)    N(비활성)
+        (MENU_03에 대한 레코드는 아예 없음)       -            -              -                -
+
+        2. 파라미터 전달 및 Source(S) 생성
+        전달 파라미터: roleId = 'ROLE_ADMIN', createdBy = 'INIT', updatedBy = 'INIT'
+        USING 절이 만들어내는 가상 데이터 세트(S):
+            SELECT 'ROLE_ADMIN' AS ROLE_ID, M.MENU_ID FROM S2C_MENU M WHERE M.USE_YN = 'Y'
+            ===>
+            S.ROLE_ID       S.MENU_ID
+            ROLE_ADMIN      MENU_01
+            ROLE_ADMIN      MENU_02
+            ROLE_ADMIN      MENU_03
+
+        3. 실제 데이터 처리 동작 (메뉴별 결과)
+        ON (T.ROLE_ID = S.ROLE_ID AND T.MENU_ID = S.MENU_ID) 조건에 따라 각 메뉴별로 다음 작업이 실행 된다.
+        MENU_01 (MATCHED -> UPDATE 실행):
+        기존에 읽기 전용(AUTH_LEVEL = 'R'), 부서 범위(DATA_SCOPE = 'DEPT')로 제한되어 있던 권한이
+        최고 권한(AUTH_LEVEL = 'W', CAN_EXCEL = 'Y', ..., DATA_SCOPE = 'COMPANY')으로 일괄 갱신 된다.
+        MENU_02 (MATCHED -> UPDATE 실행):
+        기존에 사용 중지(USE_YN = 'N') 상태였던 권한이 다시 활성화(USE_YN = 'Y')되고 모든 권한 플래그가 'Y'로 갱신 된다.
+        MENU_03 (NOT MATCHED -> INSERT 실행):
+        권한 레코드가 아예 없었으므로, ROLE_ADMIN에게 MENU_03에 대한 최고 권한 레코드가 신규 추가(INSERT) 된다.
+
+        4. 쿼리 실행 후 최종 테이블 상태
+        ROLE_ID     MENU_ID AUTH_LEVEL  CAN_EXCEL   CAN_APPROVE ... DATA_SCOPE  USE_YN  변경 내용
+        ROLE_ADMIN  MENU_01     W       Y           Y           ... COMPANY     Y       최고 권한으로 승격
+        ROLE_ADMIN  MENU_02     W       Y           Y           ... COMPANY     Y       활성화 및 권한 복구
+        ROLE_ADMIN  MENU_03     W       Y           Y           ... COMPANY     Y       신규 권한 등록
+
+    -->
+
+    <update id="mergeSystemAdminMenuPermissions">
+
+        MERGE INTO S2C_ROLE_MENU_AUTH T
+            USING (
+                SELECT
+                    #{roleId} ROLE_ID,
+                    M.MENU_ID AS MENU_ID
+                FROM S2C_MENU M
+                WHERE M.MENU_CODE = #{menuCode} AND M.USE_YN = 'Y'
+            ) S ON (T.ROLE_ID = S.ROLE_ID AND T.MENU_ID = S.MENU_ID)
+        WHEN MATCHED THEN
+            UPDATE SET
+                T.AUTH_LEVEL = #{authLevel},
+                T.CAN_EXCEL = 'N',
+                T.CAN_APPROVE = 'N',
+                T.CAN_CLOSE = 'N',
+                T.CAN_COST_VIEW = 'N',
+                T.DATA_SCOPE = 'COMPANY',
+                T.USE_YN = 'Y',
+                T.UPDATED_AT = SYSTIMESTAMP,
+                T.UPDATED_BY = #{updatedBy}
+        WHEN NOT MATCHED THEN
+            INSERT (ROLE_ID, MENU_ID, AUTH_LEVEL, CAN_EXCEL, CAN_APPROVE, CAN_CLOSE, CAN_COST_VIEW, DATA_SCOPE,
+                    USE_YN, CREATED_AT, CREATED_BY)
+            VALUES (S.ROLE_ID, S.MENU_ID, #{authLevel}, 'N', 'N', 'N', 'N', 'COMPANY',
+                    'Y', SYSTIMESTAMP, #{updatedBy})
+
+    </update>
+
+    <!-- =====================================================
+         ROLE_CODE → ROLE_ID
+         ===================================================== -->
+
+    <select id="selectRoleIdByCode" resultType="java.lang.Long">
+
+        SELECT ROLE_ID FROM S2C_ROLE WHERE ROLE_CODE = #{roleCode}
+
+    </select>
+
+    <select id="selectCurrentUserIdsByRoleId" resultType="java.lang.Long">
+        SELECT DISTINCT UR.USER_ID
+        FROM S2C_USER_ROLE UR
+        WHERE UR.ROLE_ID = #{roleId}
+        AND UR.USE_YN = 'Y'
+        AND UR.VALID_FROM &lt;= SYSDATE
+        AND (UR.VALID_TO IS NULL OR UR.VALID_TO &gt;= TRUNC(SYSDATE))
+    </select>
+
+    <select id="countValidSystemAdminRole" resultType="int">
+        SELECT COUNT(*)
+        FROM S2C_ROLE
+        WHERE ROLE_ID = #{roleId}
+        AND ROLE_CODE = 'SYSTEM_ADMIN'
+        AND ROLE_TYPE = 'SYSTEM'
+        AND USE_YN = 'Y'
+    </select>
+
+    <select id="countValidBootstrapMenuStructure" resultType="int">
+        SELECT COUNT(*)
+        FROM S2C_MENU P
+        JOIN S2C_MENU C ON C.PARENT_MENU_ID = P.MENU_ID
+        WHERE P.MENU_CODE = 'SYS_ADMIN_GRP'
+        AND P.MENU_TYPE = 'GROUP'
+        AND P.MENU_LEVEL = 1
+        AND P.PARENT_MENU_ID IS NULL
+        AND P.SCREEN_ID IS NULL
+        AND P.FORM_PATH IS NULL
+        AND P.USE_YN = 'Y'
+        AND C.MENU_CODE = 'SYS_MENU_MGMT'
+        AND C.MENU_TYPE = 'SCREEN'
+        AND C.MENU_LEVEL = 2
+        AND C.SCREEN_ID IS NOT NULL
+        AND C.FORM_PATH IS NOT NULL
+        AND C.USE_YN = 'Y'
+    </select>
+
+    <select id="countCurrentUserRole" resultType="int">
+        SELECT COUNT(*)
+        FROM S2C_USER_ROLE
+        WHERE USER_ID = #{userId}
+        AND ROLE_ID = #{roleId}
+        AND USE_YN = 'Y'
+        AND VALID_FROM &lt;= SYSDATE
+        AND (VALID_TO IS NULL OR VALID_TO &gt;= TRUNC(SYSDATE))
+    </select>
+
+    <select id="countBlockingAdminMenuOverrides" resultType="int">
+        SELECT COUNT(*)
+        FROM (
+        SELECT M.MENU_CODE,
+        UMA.AUTH_LEVEL,
+        ROW_NUMBER() OVER (
+        PARTITION BY UMA.MENU_ID
+        ORDER BY UMA.VALID_FROM DESC, UMA.USER_MENU_AUTH_ID DESC
+        ) AS RN
+        FROM S2C_USER_MENU_AUTH UMA
+        JOIN S2C_MENU M ON M.MENU_ID = UMA.MENU_ID
+        WHERE UMA.USER_ID = #{userId}
+        AND UMA.USE_YN = 'Y'
+        AND UMA.VALID_FROM &lt;= SYSDATE
+        AND (UMA.VALID_TO IS NULL OR UMA.VALID_TO &gt;= TRUNC(SYSDATE))
+        AND M.MENU_CODE IN ('SYS_ADMIN_GRP', 'SYS_MENU_MGMT')
+        ) X
+        WHERE X.RN = 1
+        AND (
+        (X.MENU_CODE = 'SYS_ADMIN_GRP' AND X.AUTH_LEVEL = 'N')
+        OR
+        (X.MENU_CODE = 'SYS_MENU_MGMT' AND X.AUTH_LEVEL IN ('N', 'R'))
+        )
+    </select>
+
+
+
+    <!-- =====================================================
+         역할 생성
+         ===================================================== -->
+    
+<!--    <insert id="insertRole">-->
+
+<!--        INSERT INTO S2C_ROLE-->
+<!--        (   ROLE_CODE, ROLE_NAME, ROLE_TYPE, DESCRIPTION, USE_YN, CREATED_AT, CREATED_BY    )-->
+<!--        VALUES-->
+<!--        (   #{roleCode}, #{roleName}, #{roleType}, #{description}, 'Y', SYSTIMESTAMP, #{createdBy}  )-->
+
+<!--    </insert>-->
+
+    <!-- =====================================================
+         현재 활성 사용자 역할 존재 여부
+         ===================================================== -->
+
+<!--    <select id="countActiveUserRole" resultType="int">-->
+
+<!--        SELECT COUNT(*) FROM S2C_USER_ROLE-->
+<!--        WHERE USER_ID = #{userId}-->
+<!--        AND ROLE_ID = #{roleId}-->
+<!--        AND USE_YN = 'Y'-->
+<!--        AND VALID_FROM &lt;= SYSDATE-->
+<!--        AND (VALID_TO IS NULL OR VALID_TO &gt;= SYSDATE)-->
+
+<!--    </select>-->
+
+    <!-- =====================================================
+         ADMIN ↔ SYSTEM_ADMIN 연결
+         ===================================================== -->
+
+<!--    <insert id="insertUserRole">-->
+
+<!--        INSERT INTO S2C_USER_ROLE-->
+<!--        (   USER_ID, ROLE_ID, VALID_FROM, VALID_TO, REASON, USE_YN, CREATED_AT, CREATED_BY  )-->
+<!--        VALUES-->
+<!--        (   #{userId}, #{roleId}, SYSDATE, NULL, #{reason}, 'Y', SYSTIMESTAMP, #{createdBy} )-->
+
+<!--    </insert>-->
+
+</mapper>

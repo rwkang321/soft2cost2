@@ -1,0 +1,66 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.0.8'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.soft2cost2'
+version = '0.0.1-SNAPSHOT'
+description = 'soft2cost2'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Spring MVC - REST API
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+
+    // Spring Security
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+
+    // Validation 의존성 추가
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Oracle
+    runtimeOnly 'com.oracle.database.jdbc:ojdbc17'
+    // 아래 2줄은 Spring Data JDBC Repository 사용. : MyBatis 만 사용할 것이므로 불필요.
+    // implementation 'org.springframework.boot:spring-boot-starter-data-jdbc'
+    // testImplementation 'org.springframework.boot:spring-boot-starter-data-jdbc-test'
+
+    // MyBatis: DataSource -> SqlSessionFactory -> SqlSessionTemplate -> Mapper
+    implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:4.0.1'
+
+    // Redis: Jedis, Lettuce
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+    // Flyway 코어
+    // * 불가 implementation 'org.flywaydb:flyway-core'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    // Oracle용 Flyway 확장 모듈 (최신 Flyway 버전 사용 시 필수)
+    // ? implementation: 컴파일(개발)/런타임 시 모두 필요
+    // implementation 'org.flywaydb:flyway-database-oracle'
+    // ? 런타임 시에만 필요. 개발 시 import org.flywaydb.oracle... 이런 것이 필요 없다.
+    runtimeOnly 'org.flywaydb:flyway-database-oracle'
+
+    // Test
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

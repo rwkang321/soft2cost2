@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+2026.08.13 AuthMapper.xml by rwkang.
+2026.08.17 Updated by cdx.
+변경 이유:
+역할 만료 비교를 시각 단위로 통일하고 비활성 역할 권한 행을 제외한다.
+메뉴별로 최신 활성 사용자 예외 한 건만 선택해 결과를 결정적으로 만든다.
+실패 횟수 증가와 임계값 잠금을 한 SQL로 처리해 동시 로그인 실패의 lost update를 줄인다.
+자동 해제, 마지막 로그인 시각, 비밀번호 변경 상태에 필요한 SQL을 명시한다.
+
+보안 영향:
+만료·비활성 권한이 계속 살아 있는 문제를 차단한다.
+같은 메뉴의 중복 예외 행이 비결정적으로 권한을 넓히는 위험을 줄인다.
+DB 갱신만으로 충분하지 않다. 아래 LoginAttemptService의 REQUIRES_NEW 트랜잭션과 함께 적용해야 한다.
+-->
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.soft2cost2.auth.mapper.AuthMapper">
+
+    <!-- =====================================================
+         사용자
+         ===================================================== -->
+
+    <select id="selectUserByLoginId" resultType="com.soft2cost2.auth.model.UserAccount">
+
+        SELECT
+            USER_ID,
+            LOGIN_ID,
+            USER_NAME,
+            COMPANY_ID,
+            SITE_ID,
+            DEPT_ID,
+            PASSWORD_HASH,
+            AUTH_TYPE,
+            USER_STATUS,
+            FAILED_LOGIN_COUNT,
+            LOCKED_UNTIL,
+            PASSWORD_CHANGED_AT,
+            MUST_CHANGE_PASSWORD_YN,
+            USE_YN
+        FROM S2C_USER
+        WHERE UPPER(LOGIN_ID) = UPPER(#{loginId})
+
+    </select>
+
+    <!-- =====================================================
+        사용자 역할
+        ===================================================== -->
+
+    <select id="selectRoleCodes" resultType="string">
+
+        SELECT DISTINCT R.ROLE_CODE
+        FROM S2C_USER_ROLE UR JOIN S2C_ROLE R ON R.ROLE_ID = UR.ROLE_ID
+        WHERE UR.USER_ID = #{userId}
+            AND UR.USE_YN = 'Y'
+            AND R.USE_YN = 'Y'
+            AND UR.VALID_FROM &lt;= SYSDATE
+            AND ( UR.VALID_TO IS NULL OR UR.VALID_TO &gt;= TRUNC(SYSDATE) )
+        ORDER BY R.ROLE_CODE
+
+    </select>
+
+    <!-- =====================================================
+         전체 메뉴
+         ===================================================== -->
+
+    <select id="selectAllMenus" resultType="com.soft2cost2.auth.model.MenuRow">
+
+        SELECT
+            MENU_ID,
+            PARENT_MENU_ID,
+            MENU_CODE,
+            MENU_NAME,
+            MENU_LEVEL,
+            MENU_TYPE,
+            SCREEN_ID,
+            FORM_PATH,
+            ICON_NAME,
+            SORT_ORDER
+        FROM S2C_MENU
+        WHERE USE_YN = 'Y'
+        ORDER BY MENU_LEVEL, SORT_ORDER, MENU_ID
+
+    </select>
+
+    <!-- =====================================================
+         역할별 권한
+         ===================================================== -->
+
+    <select id="selectRoleMenuAuth" resultType="com.soft2cost2.auth.model.RoleMenuAuthRow">
+
+        SELECT
+            A.MENU_ID,
+            A.AUTH_LEVEL,
+            A.CAN_EXCEL,
+            A.CAN_APPROVE,
+            A.CAN_CLOSE,
+            A.CAN_COST_VIEW,
+            A.DATA_SCOPE
+        FROM S2C_USER_ROLE UR
+        JOIN S2C_ROLE R ON R.ROLE_ID = UR.ROLE_ID
+        JOIN S2C_ROLE_MENU_AUTH A ON A.ROLE_ID = UR.ROLE_ID
+        WHERE UR.USER_ID = #{userId}
+            AND UR.USE_YN = 'Y'
+            AND R.USE_YN = 'Y'
+            AND A.USE_YN = 'Y'
+            AND UR.VALID_FROM &lt;= SYSDATE
+            AND ( UR.VALID_TO IS NULL OR UR.VALID_TO &gt;= TRUNC(SYSDATE) )
+
+    </select>
+
+    <!-- =====================================================
+         사용자 개별 예외
+         ===================================================== -->
+
+    <select id="selectUserMenuAuth" resultType="com.soft2cost2.auth.model.UserMenuAuthRow">
+
+        SELECT
+            MENU_ID,
+            AUTH_LEVEL,
+            CAN_EXCEL,
+            CAN_APPROVE,
+            CAN_CLOSE,
+            CAN_COST_VIEW,
+            DATA_SCOPE
+        FROM (
+            SELECT UMA.MENU_ID,
+                UMA.AUTH_LEVEL,
+                UMA.CAN_EXCEL,
+                UMA.CAN_APPROVE,
+                UMA.CAN_CLOSE,
+                UMA.CAN_COST_VIEW,
+                UMA.DATA_SCOPE,
+                ROW_NUMBER() OVER (
+                    PARTITION BY UMA.MENU_ID
+                    ORDER BY UMA.VALID_FROM DESC, UMA.USER_MENU_AUTH_ID DESC
+                ) AS RN
+            FROM S2C_USER_MENU_AUTH UMA
+            WHERE UMA.USER_ID = #{userId}
+                AND UMA.USE_YN = 'Y'
+                AND UMA.VALID_FROM &lt;= SYSDATE
+                AND ( UMA.VALID_TO IS NULL OR UMA.VALID_TO &gt;= TRUNC(SYSDATE)) )
+        WHERE RN = 1
+
+    </select>
+
+    <!-- cdx added -->
+    <update id="unlockExpiredUser">
+
+        UPDATE S2C_USER
+            SET USER_STATUS = 'ACTIVE',
+                FAILED_LOGIN_COUNT = 0,
+                LOCKED_UNTIL = NULL,
+                UPDATED_AT = SYSTIMESTAMP,
+                UPDATED_BY = 'AUTH'
+        WHERE LOGIN_ID = #{loginId}
+            AND USER_STATUS = 'LOCKED'
+            AND LOCKED_UNTIL IS NOT NULL
+            AND LOCKED_UNTIL &lt;= SYSTIMESTAMP
+
+    </update>
+
+    <!-- cdx added -->
+    <update id="recordLoginFailure">
+
+        UPDATE S2C_USER
+            SET FAILED_LOGIN_COUNT = FAILED_LOGIN_COUNT + 1,
+                USER_STATUS = CASE WHEN FAILED_LOGIN_COUNT + 1 &gt;= #{threshold}
+                                THEN 'LOCKED' ELSE USER_STATUS END,
+                LOCKED_UNTIL = CASE WHEN FAILED_LOGIN_COUNT + 1 &gt;= #{threshold}
+                                THEN SYSTIMESTAMP + NUMTODSINTERVAL(#{lockMinutes}, 'MINUTE')
+                                ELSE LOCKED_UNTIL END,
+                UPDATED_AT = SYSTIMESTAMP,
+                UPDATED_BY = 'AUTH'
+        WHERE USER_ID = #{userId}
+
+    </update>
+
+    <!-- cdx added -->
+    <update id="recordLoginSuccess">
+
+        UPDATE S2C_USER
+            SET FAILED_LOGIN_COUNT = 0,
+                USER_STATUS = 'ACTIVE',
+                LOCKED_UNTIL = NULL,
+                LAST_LOGIN_AT = SYSTIMESTAMP,
+                UPDATED_AT = SYSTIMESTAMP,
+                UPDATED_BY = 'AUTH'
+        WHERE USER_ID = #{userId}
+
+    </update>
+
+    <!-- cdx added -->
+    <update id="updatePassword">
+
+        UPDATE S2C_USER
+            SET PASSWORD_HASH = #{passwordHash},
+                PASSWORD_CHANGED_AT = SYSTIMESTAMP,
+                MUST_CHANGE_PASSWORD_YN = 'N',
+                UPDATED_AT = SYSTIMESTAMP,
+                UPDATED_BY = #{updatedBy}
+        WHERE USER_ID = #{userId}
+
+    </update>
+
+<!--    <update id="increaseLoginFailure">-->
+
+<!--        UPDATE S2C_USER-->
+<!--            SET FAILED_LOGIN_COUNT = FAILED_LOGIN_COUNT + 1,-->
+<!--                UPDATED_AT = SYSTIMESTAMP,-->
+<!--                UPDATED_BY = 'AUTH'-->
+<!--        WHERE USER_ID = #{userId}-->
+
+<!--    </update>-->
+
+<!--    <update id="lockUser">-->
+
+<!--        UPDATE S2C_USER-->
+<!--            SET USER_STATUS = 'LOCKED',-->
+<!--                LOCKED_UNTIL = SYSTIMESTAMP + NUMTODSINTERVAL(15, 'MINUTE'),-->
+<!--                UPDATED_AT = SYSTIMESTAMP,-->
+<!--                UPDATED_BY = 'AUTH'-->
+<!--        WHERE USER_ID = #{userId}-->
+
+<!--    </update>-->
+
+<!--    <update id="resetLoginFailure">-->
+
+<!--        UPDATE S2C_USER-->
+<!--            SET FAILED_LOGIN_COUNT = 0,-->
+<!--                LOCKED_UNTIL = NULL,-->
+<!--                UPDATED_AT = SYSTIMESTAMP,-->
+<!--                UPDATED_BY = 'AUTH'-->
+<!--        WHERE USER_ID = #{userId}-->
+
+<!--    </update>-->
+
+</mapper>

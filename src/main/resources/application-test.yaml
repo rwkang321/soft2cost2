@@ -1,0 +1,7 @@
+# src/test/resources/application-test.yaml
+spring:
+  flyway:
+    enabled: false
+soft2cost2:
+  bootstrap:
+    enabled: false

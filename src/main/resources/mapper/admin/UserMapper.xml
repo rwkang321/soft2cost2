@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!--/** 2026.08.15 UserMapper.xml by rwkang.
+* 1. 최초 1회만,
+* todo: S2C_USER 테이블에, "ADMIN", "시스템 관리자" 등록을 위해.
+* todo: S2C_USER_ROLE 테이블에, "ADMIN", "SYSTEM_ADMIN"
+*
+*/-->
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.soft2cost2.admin.mapper.UserMapper">
+
+    <!-- =====================================================
+         LOGIN_ID로 USER_ID 조회
+         ===================================================== -->
+    <select id="selectUserIdByLoginId" resultType="java.lang.Long">
+
+        SELECT USER_ID FROM S2C_USER WHERE UPPER(LOGIN_ID) = UPPER(#{loginId})
+
+    </select>
+
+    <!-- =====================================================
+         Bootstrap용 회사 조회
+         ===================================================== -->
+
+    <select id="selectCompanyIdByCode" resultType="java.lang.Long">
+
+        SELECT COMPANY_ID FROM S2C_COMPANY WHERE COMPANY_CODE = #{companyCode} AND USE_YN = 'Y'
+
+    </select>
+
+    <!-- =====================================================
+         최초 ADMIN 생성
+         ===================================================== -->
+
+<!--    <insert id="insertInitialAdmin">-->
+
+<!--        INSERT INTO S2C_USER-->
+<!--            (   LOGIN_ID, USER_NAME, COMPANY_ID, AUTH_TYPE, PASSWORD_HASH,-->
+<!--                USER_STATUS, FAILED_LOGIN_COUNT, USE_YN, CREATED_AT, CREATED_BY     )-->
+<!--            VALUES-->
+<!--            (   #{loginId}, #{userName}, #{companyId}, 'LOCAL', #{passwordHash},-->
+<!--                'ACTIVE', 0, 'Y', SYSTIMESTAMP, #{createdBy} )-->
+
+<!--    </insert>-->
+
+    <!-- cdx added.
+        todo: 초기 시스템 관리자(슈퍼 어드민) 계정이 DB에 이미 존재하는지 확인하고,
+              없을 때만 신규 생성(Insert-if-not-exists)하는 초기 부트스트랩/마이그레이션용 MERGE 구문
+        todo: 반복·동시 bootstrap을 멱등화하고 최초 관리자에게 비밀번호 변경을 강제한다.
+              MATCHED 절을 두지 않아 기존 사용자의 해시·상태·회사 정보를 덮어쓰지 않는다.
+
+        1. 쿼리 매칭 조건 (ON 절)
+            기준 컬럼: T.LOGIN_ID = S.LOGIN_ID
+            사용자 테이블(S2C_USER)에 파라미터로 넘어온 로그인 아이디(LOGIN_ID)가 이미 등록되어 있는지만 검사
+
+        2. 테이블 초기 상태 (S2C_USER)
+        현재 시스템 사용자 테이블에 다음과 같은 사용자가 저장되어 있다고 가정
+        LOGIN_ID    USER_NAME   USER_STATUS     AUTH_TYPE   MUST_CHANGE_PASSWORD_YN
+        user01      김철수       ACTIVE          LOCAL        N
+        admin       기존관리자    ACTIVE          LOCAL        N
+
+        3. 실제 데이터 입력 시나리오
+
+        시나리오 1: 이미 존재하는 아이디로 초기화를 시도한 경우 (admin)
+        전달 파라미터:
+        loginId = "admin"
+        userName = "새관리자"
+        companyId = "COMP_01"
+        passwordHash = "$2a$10$xyz..."
+        createdBy = "SYSTEM_INIT"
+        검사 결과:
+        테이블에 LOGIN_ID = 'admin' 레코드가 이미 존재.
+        MATCHED (조건 일치) 판정.
+        실행 결과:
+        WHEN MATCHED 절이 없으므로 아무 작업도 하지 않고 건너 뜀 (0건 반영).
+        todo: 기존 관리자의 이름이나 비밀번호, 상태값 등이 덮어씌워지지 않고 안전하게 보존.
+
+        시나리오 2: 존재하지 않는 새로운 관리자 아이디인 경우 (sysadmin)
+        전달 파라미터:
+        loginId = "sysadmin"
+        userName = "시스템 최고관리자"
+        companyId = "COMP_HQ"
+        passwordHash = "$2a$10$Abc987..."
+        createdBy = "SYSTEM_INIT"
+        검사 결과:
+        테이블에 LOGIN_ID = 'sysadmin'이 없음.
+        NOT MATCHED (조건 불일치) 판정.
+        실행 결과:
+        todo: 신규 관리자 행이 INSERT 수행 (1건 반영) 된다.
+            하드코딩된 초기 설정 값들이 함께 들어 간다.
+            AUTH_TYPE: 'LOCAL' (자체 로그인 계정)
+            USER_STATUS: 'ACTIVE' (활성 계정)
+            FAILED_LOGIN_COUNT: 0 (로그인 실패 횟수 0회 초기화)
+            MUST_CHANGE_PASSWORD_YN: 'Y' (최초 로그인 시 비밀번호 변경 유도)
+            USE_YN: 'Y' (사용 가능)
+
+         -->
+
+    <update id="mergeInitialAdmin">
+
+        MERGE INTO S2C_USER T
+            USING (SELECT #{loginId} LOGIN_ID FROM DUAL) S
+            ON (T.LOGIN_ID = S.LOGIN_ID)
+        WHEN NOT MATCHED THEN
+            INSERT (
+                LOGIN_ID,
+                USER_NAME,
+                COMPANY_ID,
+                AUTH_TYPE,
+                PASSWORD_HASH,
+                USER_STATUS,
+                FAILED_LOGIN_COUNT,
+                MUST_CHANGE_PASSWORD_YN,
+                USE_YN,
+                CREATED_AT,
+                CREATED_BY
+            ) VALUES (
+                #{loginId},
+                #{userName},
+                #{companyId},
+                'LOCAL',
+                #{passwordHash},
+                'ACTIVE',
+                0,
+                'Y',
+                'Y',
+                SYSTIMESTAMP,
+                #{createdBy}
+            )
+
+    </update>
+
+    <select id="countCompanyByCode" resultType="int">
+        SELECT COUNT(*)
+        FROM S2C_COMPANY
+        WHERE COMPANY_CODE = #{companyCode}
+    </select>
+
+    <select id="countActiveCompanyByCode" resultType="int">
+        SELECT COUNT(*)
+        FROM S2C_COMPANY
+        WHERE COMPANY_CODE = #{companyCode}
+        AND USE_YN = 'Y'
+    </select>
+
+    <select id="countConformingInitialAdmin" resultType="int">
+        SELECT COUNT(*)
+        FROM S2C_USER U
+        JOIN S2C_COMPANY C ON C.COMPANY_ID = U.COMPANY_ID
+        WHERE U.USER_ID = #{userId}
+        AND UPPER(U.LOGIN_ID) = UPPER(#{loginId})
+        AND U.AUTH_TYPE = 'LOCAL'
+        AND U.USER_STATUS = 'ACTIVE'
+        AND U.USE_YN = 'Y'
+        AND U.PASSWORD_HASH IS NOT NULL
+        AND C.COMPANY_CODE = #{companyCode}
+        AND C.USE_YN = 'Y'
+    </select>
+
+
+</mapper>
