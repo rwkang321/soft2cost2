@@ -19,6 +19,15 @@ import java.time.Instant;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    public static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+//    private final MessageService messages;
+}
+
+
+/**
+@RestControllerAdvice
+public class ApiExceptionHandler {
 
     private static Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
@@ -63,3 +72,5 @@ public class ApiExceptionHandler {
         ));
     }
 }
+ */
+

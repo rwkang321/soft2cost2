@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.soft2cost2.common.i18n.I18nMapper">
+
+    <!-- 다국어 전용 생성자 매핑: 전역 underscore 설정이나 생성자 추론에 의존하지 않는다. -->
+
+    <resultMap id="message" type="com.soft2cost2.common.i18n.I18nRows$Message">
+        <constructor>
+            <arg column="MESSAGE_CODE" javaType="java.lang.String"/>
+            <arg column="MESSAGE_NAME" javaType="java.lang.String"/>
+            <arg column="API_CODE" javaType="java.lang.String"/>
+            <arg column="ARG_COUNT" javaType="java.lang.Integer"/>
+            <arg column="USE_YN" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="text" type="com.soft2cost2.common.i18n.I18nRows$Text">
+        <constructor>
+            <arg column="LANG_CODE" javaType="java.lang.String"/>
+            <arg column="MESSAGE_TEXT" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="menuText" type="com.soft2cost2.common.i18n.I18nRows$MenuText">
+        <constructor>
+            <arg column="MENU_ID" javaType="java.lang.Long"/>
+            <arg column="LANG_CODE" javaType="java.lang.String"/>
+            <arg column="MENU_NAME" javaType="java.lang.String"/>
+            <arg column="DESCRIPTION" javaType="java.lang.String"/>
+            <arg column="ICON_ALT_TEXT" javaType="java.lang.String"/>
+            <arg column="TOOLTIP_TEXT" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="icon" type="com.soft2cost2.common.i18n.I18nRows$MenuIcon">
+        <constructor>
+            <arg column="MENU_ID" javaType="java.lang.Long"/>
+            <arg column="RESOURCE_PATH" javaType="java.lang.String"/>
+            <arg column="RESOURCE_TYPE" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <select id="selectLanguages" resultType="string" timeout="2">
+        SELECT LANG_CODE FROM S2C_LANGUAGE WHERE USE_YN = 'Y' ORDER BY LANG_CODE
+    </select>
+
+    <select id="selectPreference" resultType="string" timeout="2">
+        SELECT U.PREFERRED_LANG_CODE
+        FROM S2C_USER U JOIN S2C_LANGUAGE L ON L.LANG_CODE = U.LANG_CODE
+        WHERE U.USER_ID = #{userId} AND U.USE_YN = 'Y' AND L.USE_YN = 'Y'
+    </select>
+
+    <select id="selectMessageByCode" resultMap="message" timeout="2">
+        SELECT MESSAGE_CODE, MESSAGE_NAME, API_CODE, ARG_COUNT, USE_YN
+        FROM S2C_MESSAGE
+        WHERE MESSAGE_CODE = #{value}
+    </select>
+
+    <select id="selectMessageByName" resultMap="message" timeout="2">
+        SELECT MESSAGE_CODE, MESSAGE_NAME, API_CODE, ARG_COUNT, USE_YN
+        FROM S2C_MESSAGE
+        WHERE MESSAGE_NAME = #{value}
+    </select>
+
+    <select id="selectTexts" resultMap="text" timeout="2">
+        SELECT T.LANG_CODE, T.MESSAGE_TEXT
+        FROM S2C_MESSAGE_I18N T JOIN S2C_LANGUAGE L ON L.LANG_CODE = T.LANG_CODE
+        WHERE T.MESSAGE_CODE = #{code} AND T.USE_YN = 'Y' AND L.USE_YN = 'Y'
+        AND T.LANG_CODE IN
+        <foreach collection="languages" item="lang" open="(" separator="," close=")">#{lang}</foreach>
+    </select>
+
+</mapper>

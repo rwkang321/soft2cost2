@@ -255,7 +255,8 @@ public class RedisAuthSessionService {
     public record PasswordChangedEvent(Long userId) {}
 
     public static final class SessionStoreException extends RuntimeException {
-        public SessionStoreException(String message, Throwable cause) {
+        public SessionStoreException(String message, Throwable cause)
+        {
             super(message, cause);
         }
     }

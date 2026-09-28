@@ -8,6 +8,16 @@ group = 'com.soft2cost2'
 version = '0.0.1-SNAPSHOT'
 description = 'soft2cost2'
 
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(JavaExec).configureEach {
+    jvmArgs '-Dfile.encoding=UTF-8'
+    jvmArgs '-Dsun.stdout.encoding=UTF-8'
+    jvmArgs '-Dsun.stderr.encoding=UTF-8'
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
@@ -18,7 +28,14 @@ repositories {
     mavenCentral()
 }
 
+ext {
+    set('springAiVersion', "2.0.1")
+}
+
 dependencies {
+    // Swagger: http://127.0.0.1:8081/swagger-ui.html
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
+
     // Spring MVC - REST API
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
@@ -27,6 +44,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
 
+    // Lombok
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testCompileOnly 'org.projectlombok:lombok'
@@ -34,6 +52,9 @@ dependencies {
 
     // Validation 의존성 추가
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // AI
+    implementation 'org.springframework.ai:spring-ai-starter-model-openai'
 
     // Oracle
     runtimeOnly 'com.oracle.database.jdbc:ojdbc17'
@@ -43,6 +64,7 @@ dependencies {
 
     // MyBatis: DataSource -> SqlSessionFactory -> SqlSessionTemplate -> Mapper
     implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:4.0.1'
+    testImplementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter-test:4.0.1'
 
     // Redis: Jedis, Lettuce
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
@@ -59,6 +81,12 @@ dependencies {
     // Test
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.ai:spring-ai-bom:${springAiVersion}"
+    }
 }
 
 tasks.named('test') {
